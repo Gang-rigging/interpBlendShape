@@ -1,0 +1,456 @@
+// AEinterpBlendShapeTemplate.mel
+// Attribute Editor template for interpBlendShape node
+// Install to: Documents/maya/scripts/AETemplates/
+
+global proc AEinterpBlendShapeTemplate(string $nodeName)
+{
+    editorTemplate -beginScrollLayout;
+
+        // ── Suppress everything first so nothing leaks into Node Behavior ─
+        editorTemplate -suppress "input";
+        editorTemplate -suppress "inputGeometry";
+        editorTemplate -suppress "inputComponents";
+        editorTemplate -suppress "outputGeometry";
+        editorTemplate -suppress "output";
+        editorTemplate -suppress "weightFunction";
+        editorTemplate -suppress "originalGeometry";
+        editorTemplate -suppress "map64BitIndices";
+        editorTemplate -suppress "weightList";
+        editorTemplate -suppress "weights";
+        editorTemplate -suppress "forceEvaluation";
+        editorTemplate -suppress "weight";
+        editorTemplate -suppress "inputTarget";
+        editorTemplate -suppress "inputSurface";
+        editorTemplate -suppress "paintTargetWeights";
+        editorTemplate -suppress "paintTargetWeightsIndex";
+        editorTemplate -suppress "inbetweenInfoGroup";
+        editorTemplate -suppress "weightBuffer";
+        editorTemplate -suppress "baseWeights";
+
+        // ── InterpBlendShape Attributes ───────────────────────────────────
+        editorTemplate -beginLayout "InterpBlendShape Attributes" -collapse 0;
+
+            editorTemplate -label "Envelope"
+                           -addControl "envelope";
+
+            editorTemplate -callCustom
+                "AEinterpBlendShape_originNew"
+                "AEinterpBlendShape_originReplace"
+                "origin";
+
+            editorTemplate -label "Precision"
+                           -addControl "precision";
+
+            editorTemplate -label "Rebind"
+                           -addControl "rebind";
+
+        editorTemplate -endLayout;
+
+        // ── Weight ────────────────────────────────────────────────────────
+        editorTemplate -beginLayout "Weight" -collapse 0;
+
+            editorTemplate -callCustom
+                "AEinterpBlendShape_weightsNew"
+                "AEinterpBlendShape_weightsReplace"
+                "weight";
+
+        editorTemplate -endLayout;
+
+        // ── Target Options ────────────────────────────────────────────────
+        editorTemplate -beginLayout "Target Options" -collapse 1;
+
+            editorTemplate -callCustom
+                "AEinterpBlendShape_targetOptionsNew"
+                "AEinterpBlendShape_targetOptionsReplace"
+                "inputTarget";
+
+        editorTemplate -endLayout;
+
+        // ── Surface ───────────────────────────────────────────────────────
+        editorTemplate -beginLayout "Surface" -collapse 1;
+
+            editorTemplate -callCustom
+                "AEinterpBlendShape_surfaceNew"
+                "AEinterpBlendShape_surfaceReplace"
+                "inputSurface";
+
+        editorTemplate -endLayout;
+
+        // ── GPU ───────────────────────────────────────────────────────────
+        editorTemplate -beginLayout "GPU" -collapse 0;
+
+            editorTemplate -label "Block GPU"
+                           -addControl "blockGPU";
+
+        editorTemplate -endLayout;
+
+        // ── Profiling ─────────────────────────────────────────────────────
+        editorTemplate -beginLayout "Profiling" -collapse 1;
+
+            editorTemplate -label "Enable Profiling"
+                           -addControl "profilingEnabled";
+
+            editorTemplate -label "Sample Rate"
+                           -addControl "profilingSampleRate";
+
+        editorTemplate -endLayout;
+
+        // ── Standard node identity ────────────────────────────────────────
+        AEdependNodeTemplate $nodeName;
+
+    editorTemplate -endScrollLayout;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Origin — optionMenu showing Local / World instead of raw int
+// ─────────────────────────────────────────────────────────────────────────────
+
+global proc AEinterpBlendShape_originNew(string $plug)
+{
+    setUITemplate -pst attributeEditorTemplate;
+
+    rowLayout -nc 2 -cw2 145 120
+              -ct2 "right" "left"
+              -co2 5 0
+              AEibs_originRow;
+        text -label "Origin" -align "right";
+        optionMenu -cc ("AEinterpBlendShape_setOriginVal " + $plug)
+                   AEibs_origin_menu;
+            menuItem -label "Local";
+            menuItem -label "World";
+    setParent ..;
+
+    setUITemplate -ppt;
+    AEinterpBlendShape_originReplace($plug);
+}
+
+global proc AEinterpBlendShape_originReplace(string $plug)
+{
+    if (!`control -exists AEibs_origin_menu`) return;
+
+    // update callback to point at current node
+    optionMenu -e -cc ("AEinterpBlendShape_setOriginVal " + $plug) AEibs_origin_menu;
+
+    if (`objExists $plug`)
+    {
+        int $val = `getAttr $plug`;
+        optionMenu -e -select ($val == 0 ? 2 : 1) AEibs_origin_menu;
+    }
+}
+
+global proc AEinterpBlendShape_setOriginVal(string $plug)
+{
+    if (!`objExists $plug`) return;
+    int $sel = `optionMenu -q -select AEibs_origin_menu`;
+    // Local = index 1 -> value 1, World = index 2 -> value 0
+    setAttr $plug ($sel == 1 ? 1 : 0);
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weight sliders — one per target, labelled with alias name
+// ─────────────────────────────────────────────────────────────────────────────
+
+global proc AEinterpBlendShape_weightsNew(string $plug)
+{
+    setUITemplate -pst attributeEditorTemplate;
+    columnLayout -adj 1 -rowSpacing 0 AEinterpBlendShape_weightCol;
+    setParent ..;
+    setUITemplate -ppt;
+    AEinterpBlendShape_weightsReplace($plug);
+}
+
+global proc AEinterpBlendShape_weightsReplace(string $plug)
+{
+    if (!`layout -exists AEinterpBlendShape_weightCol`) return;
+
+    // clear existing rows
+    string $kids[] = `columnLayout -q -childArray AEinterpBlendShape_weightCol`;
+    for ($k in $kids) deleteUI $k;
+
+    // resolve node name — $plug may be "interpBlendShape1.weight" or just the node
+    string $node = "";
+    if (`gmatch $plug "*.weight"`)
+    {
+        string $parts[];
+        tokenize($plug, ".", $parts);
+        $node = $parts[0];
+    }
+    else
+    {
+        $node = $plug;
+    }
+
+    // make sure node exists
+    if (!`objExists $node`) return;
+
+    // get all existing weight indices
+    int $indices[];
+    if (`attributeExists "weight" $node`)
+        $indices = `getAttr -multiIndices ($node + ".weight")`;
+
+    // get all aliases so we can look up names by index
+    string $aliases[] = `aliasAttr -q $node`;
+    // aliases = [aliasName, attrName, aliasName, attrName ...]
+
+    setParent AEinterpBlendShape_weightCol;
+    setUITemplate -pst attributeEditorTemplate;
+
+    int $count = size($indices);
+    if ($count > 0)
+    {
+        for ($i = 0; $i < $count; $i++)
+        {
+            int    $idx      = $indices[$i];
+            string $fullPlug = $node + ".weight[" + $idx + "]";
+            string $label    = ("weight[" + $idx + "]"); // fallback label
+
+            // find alias name for this index
+            for ($a = 0; $a < size($aliases); $a += 2)
+            {
+                if ($aliases[$a + 1] == ("weight[" + $idx + "]"))
+                {
+                    $label = $aliases[$a];
+                    break;
+                }
+            }
+
+            attrFieldSliderGrp
+                -label $label
+                -at    $fullPlug
+                -min   -10
+                -max   10
+                -cw4   160 60 100 1
+                ("AEibs_wSlider_" + $i);
+        }
+    }
+    else
+    {
+        text -label "  No targets added yet."
+             -align "left" -enable 0 -font "smallPlainLabelFont";
+    }
+
+    setUITemplate -ppt;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Target Options
+// ─────────────────────────────────────────────────────────────────────────────
+
+global proc AEinterpBlendShape_targetOptionsNew(string $plug)
+{
+    setUITemplate -pst attributeEditorTemplate;
+
+    columnLayout -adj 1 -rowSpacing 3 AEinterpBlendShape_toCol;
+
+        rowLayout -nc 3 -cw3 145 60 70
+                  -ct3 "right" "left" "left"
+                  -co3 5 4 4;
+            text -label "Target Index" -align "right";
+            intField -min 0 -value 0
+                     -cc ("AEinterpBlendShape_refreshTO " + $plug)
+                     AEinterpBlendShape_toIndex;
+            button -label "Refresh"
+                   -c ("AEinterpBlendShape_refreshTO " + $plug);
+        setParent ..;
+
+        separator -h 6 -style "in";
+
+        attrControlGrp -label "UV Blend"         -attribute ($plug + "[0].inputTargetGroup[0].targetBlendUV")             AEibs_to_uvBlend;
+        attrControlGrp -label "Bezier Blend"      -attribute ($plug + "[0].inputTargetGroup[0].targetBlendBezier")        AEibs_to_bezier;
+        attrControlGrp -label "Live Blend"        -attribute ($plug + "[0].inputTargetGroup[0].targetBlendLive")          AEibs_to_live;
+
+        separator -h 6 -style "in";
+
+        attrControlGrp -label "Surface ID"        -attribute ($plug + "[0].inputTargetGroup[0].targetSurfaceId")          AEibs_to_surfId;
+        attrControlGrp -label "Target Offset"     -attribute ($plug + "[0].inputTargetGroup[0].targetOffset")             AEibs_to_offset;
+        attrControlGrp -label "Curvature"         -attribute ($plug + "[0].inputTargetGroup[0].targetCurvature")          AEibs_to_curvature;
+        attrControlGrp -label "Target Precision"  -attribute ($plug + "[0].inputTargetGroup[0].targetPrecision")          AEibs_to_precision;
+
+        separator -h 6 -style "in";
+
+        attrControlGrp -label "Weight Lock"        -attribute ($plug + "[0].inputTargetGroup[0].targetWeightLock")             AEibs_to_wLock;
+        attrControlGrp -label "Normalize Weights"  -attribute ($plug + "[0].inputTargetGroup[0].targetWeightNormalization")    AEibs_to_wNorm;
+
+        separator -h 6 -style "in";
+
+        rowLayout -nc 2 -cw2 145 180
+                  -ct2 "right" "left" -co2 5 4;
+            text -label "Partial Rebind" -align "right";
+            button -label "Rebind This Target"
+                   -c ("AEinterpBlendShape_partialRebind " + $plug)
+                   AEibs_to_rebindBtn;
+        setParent ..;
+
+        rowLayout -nc 2 -cw2 145 180
+                  -ct2 "right" "left" -co2 5 4;
+            text -label "Cached" -align "right";
+            text -label "---" AEibs_to_cachedLbl;
+        setParent ..;
+
+    setParent ..;
+    setUITemplate -ppt;
+
+    AEinterpBlendShape_refreshTO($plug);
+}
+
+global proc AEinterpBlendShape_targetOptionsReplace(string $plug)
+{
+    AEinterpBlendShape_refreshTO($plug);
+}
+
+global proc AEinterpBlendShape_refreshTO(string $plug)
+{
+    if (!`control -exists AEinterpBlendShape_toIndex`) return;
+
+    int    $tg   = `intField -q -value AEinterpBlendShape_toIndex`;
+    string $base = $plug + "[0].inputTargetGroup[" + $tg + "]";
+
+    string $attrs[] = {
+        "targetBlendUV",     "targetBlendBezier",  "targetBlendLive",
+        "targetSurfaceId",   "targetOffset",       "targetCurvature",
+        "targetPrecision",   "targetWeightLock",   "targetWeightNormalization"
+    };
+    string $ctrls[] = {
+        "AEibs_to_uvBlend",  "AEibs_to_bezier",    "AEibs_to_live",
+        "AEibs_to_surfId",   "AEibs_to_offset",    "AEibs_to_curvature",
+        "AEibs_to_precision","AEibs_to_wLock",      "AEibs_to_wNorm"
+    };
+
+    for ($i = 0; $i < size($attrs); $i++)
+    {
+        string $ap = $base + "." + $attrs[$i];
+        if (`objExists $ap` && `control -exists $ctrls[$i]`)
+            attrControlGrp -e -attribute $ap $ctrls[$i];
+    }
+
+    string $cachedPlug = $base + ".targetCached";
+    if (`objExists $cachedPlug` && `control -exists AEibs_to_cachedLbl`)
+        text -e -label (`getAttr $cachedPlug` ? "Yes" : "No") AEibs_to_cachedLbl;
+}
+
+global proc AEinterpBlendShape_partialRebind(string $plug)
+{
+    int    $tg     = `intField -q -value AEinterpBlendShape_toIndex`;
+    string $rbPlug = $plug + "[0].inputTargetGroup[" + $tg + "].targetRebind";
+    if (`objExists $rbPlug`)
+    {
+        setAttr $rbPlug 0;
+        setAttr $rbPlug 1;
+        print ("// InterpBlendShape: partial rebind triggered for target group " + $tg + "\n");
+        AEinterpBlendShape_refreshTO($plug);
+    }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Surface — index picker + per-surface origin, supports multiple surfaces
+// ─────────────────────────────────────────────────────────────────────────────
+
+global proc AEinterpBlendShape_surfaceNew(string $plug)
+{
+    setUITemplate -pst attributeEditorTemplate;
+
+    columnLayout -adj 1 -rowSpacing 3 AEinterpBlendShape_surfCol;
+
+        // surface index picker
+        rowLayout -nc 3 -cw3 145 60 70
+                  -ct3 "right" "left" "left"
+                  -co3 5 4 4;
+            text -label "Surface Index" -align "right";
+            intField -min 0 -value 0
+                     -cc ("AEinterpBlendShape_refreshSurf " + $plug)
+                     AEibs_surf_index;
+            button -label "Refresh"
+                   -c ("AEinterpBlendShape_refreshSurf " + $plug)
+                   AEibs_surf_refreshBtn;
+        setParent ..;
+
+        separator -h 6 -style "in";
+
+        // connected surface name (read-only info)
+        rowLayout -nc 2 -cw2 145 200
+                  -ct2 "right" "left" -co2 5 4;
+            text -label "Connected" -align "right";
+            text -label "---" -align "left" AEibs_surf_connName;
+        setParent ..;
+
+        // surface origin — narrow dropdown matching envelope field width
+        rowLayout -nc 2 -cw2 145 120
+                  -ct2 "right" "left" -co2 5 0;
+            text -label "Surface Origin" -align "right";
+            optionMenu -cc ("AEinterpBlendShape_setSurfOrigin " + $plug)
+                       AEibs_surf_origin;
+                menuItem -label "Local";
+                menuItem -label "World";
+        setParent ..;
+
+    setParent ..;
+    setUITemplate -ppt;
+
+    AEinterpBlendShape_surfaceReplace($plug);
+}
+
+global proc AEinterpBlendShape_surfaceReplace(string $plug)
+{
+    // IMPORTANT: update all baked callbacks to point at the current node
+    // This fixes the bug where switching nodes keeps reading the old node's data
+    if (`control -exists AEibs_surf_index`)
+        intField  -e -cc ("AEinterpBlendShape_refreshSurf " + $plug) AEibs_surf_index;
+    if (`control -exists AEibs_surf_refreshBtn`)
+        button    -e -c  ("AEinterpBlendShape_refreshSurf " + $plug) AEibs_surf_refreshBtn;
+    if (`control -exists AEibs_surf_origin`)
+        optionMenu -e -cc ("AEinterpBlendShape_setSurfOrigin " + $plug) AEibs_surf_origin;
+
+    AEinterpBlendShape_refreshSurf($plug);
+}
+
+global proc AEinterpBlendShape_refreshSurf(string $plug)
+{
+    if (!`control -exists AEibs_surf_index`) return;
+
+    int $idx = `intField -q -value AEibs_surf_index`;
+    string $op = $plug + "[" + $idx + "].inputSurfaceOrigin";
+
+    // update origin menu
+    if (`control -exists AEibs_surf_origin`)
+    {
+        if (`objExists $op`)
+        {
+            int $val = `getAttr $op`;
+            // local=1 → select 1 ("Local"),  world=0 → select 2 ("World")
+            optionMenu -e -select ($val == 0 ? 2 : 1) AEibs_surf_origin;
+        }
+        else
+            optionMenu -e -select 1 AEibs_surf_origin; // default: Local
+    }
+
+    // update connected surface name — always reads from current $plug
+    if (`control -exists AEibs_surf_connName`)
+    {
+        string $surfPlug = $plug + "[" + $idx + "].inputTargetSurface";
+        string $connName = "Not connected";
+        if (`objExists $surfPlug`)
+        {
+            string $conns[] = `listConnections -s 1 -d 0 $surfPlug`;
+            if (size($conns) > 0)
+                $connName = $conns[0];
+        }
+        text -e -label $connName AEibs_surf_connName;
+    }
+}
+
+global proc AEinterpBlendShape_setSurfOrigin(string $plug)
+{
+    if (!`control -exists AEibs_surf_index`) return;
+    int $idx = `intField -q -value AEibs_surf_index`;
+    string $op = $plug + "[" + $idx + "].inputSurfaceOrigin";
+    if (`objExists $op`)
+    {
+        int $sel = `optionMenu -q -select AEibs_surf_origin`;
+        // Local (select 1) → value 1,  World (select 2) → value 0
+        setAttr $op ($sel == 1 ? 1 : 0);
+    }
+}
