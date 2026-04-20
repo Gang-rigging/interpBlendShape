@@ -1,7 +1,10 @@
 # InterpBlendShape
 
-InterpBlendShape is a Maya deformation toolset with a custom editor for managing targets, inbetweens, paint data, surface drivers, and target-shape editing.
-It is built around a custom Qt model/view workflow with Maya callback-driven refresh, asynchronous model loading, and undo-friendly editing.
+**InterpBlendShape** is a custom Maya deformer plugin that offers an alternative to Maya's built-in linear blend — blending targets using surface and bezier interpolation. It supports GPU parallel execution and works on both meshes and curves.
+
+**InterpBlendShapeEditor** is the accompanying toolset: a custom editor for creating and managing targets, inbetweens, paint data, surface drivers, and target-shape editing. Mirror and flip operations are significantly faster than Maya's native equivalents. The UI is built on a Qt MVC framework with real-time Maya synchronization, full undo/redo support, thread-safe scene loading, and draggable target ordering.
+
+For full details on the deformer node, see the [InterpBlendShape documentation](https://www.cgdzg.com/docs/interpblendshape-docs.html).
 
 ## What Is Included
 
@@ -49,14 +52,20 @@ showUI()
 
 ## Features
 
+### Deformer
+- Surface and bezier interpolation as an alternative to Maya's linear blend
+- GPU parallel execution for fast deformation
+- Works on meshes and curves
+
+### Editor
 - Create and manage `interpBlendShape` deformers from a custom editor
 - Real-time DG and UI sync through Maya API callbacks
-- Thread-aware model loading with Maya data collected on the main thread and tree-building moved to a background `QThread`
-- Undo-friendly editing with chunked undo for drag-release and batch operations
+- Thread-safe scene loading with Maya data collected on the main thread and tree-building moved to a background `QThread`
+- Full undo/redo support with chunked undo for drag-release and batch operations
 - Add targets and inbetweens directly from scene selection
 - Paint and edit target weights
 - Vertex weight editor with normalization and lock controls
-- Copy, mirror, and flip target weights
+- Copy, mirror, and flip target weights — significantly faster than Maya's native mirror/flip
 - Drag-and-drop target reordering
 - Scene state persistence for expanded state and saved node order
 - Mirror or flip target geometry
